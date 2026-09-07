@@ -1,0 +1,4 @@
+[submodule "Vendor/libusb"]
+	path = Vendor/libusb
+	url = https://github.com/libusb/libusb.git
+	branch = master

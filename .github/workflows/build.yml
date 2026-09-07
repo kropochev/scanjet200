@@ -1,0 +1,136 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: read
+        name: Read VERSION
+        run: |
+          version=$(./scripts/version.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION $version"
+
+      - name: Check tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="${{ steps.read.outputs.version }}"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match VERSION '$version'"
+            exit 1
+          fi
+
+  build:
+    name: ${{ matrix.name }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            arch: arm64
+          - name: macOS x86_64
+            os: macos-15-intel
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Embed version
+        run: ./scripts/embed-version.sh
+
+      - name: Show toolchain
+        run: |
+          uname -m
+          swift --version
+          xcodebuild -version
+          echo "app ${{ needs.version.outputs.version }} ${{ matrix.arch }}"
+
+      - name: Test
+        run: swift test
+
+      - name: Build release
+        run: swift build -c release
+
+      - name: Check architecture
+        run: |
+          expected="${{ matrix.arch }}"
+          bin="$(swift build -c release --show-bin-path)"
+          mkdir -p .build/release
+          for name in Scanjet200 scanjet; do
+            src="$bin/$name"
+            if [ ! -f "$src" ]; then
+              echo "::error::$src is missing"
+              exit 1
+            fi
+            actual=$(lipo -archs "$src")
+            echo "$src: $actual"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$name is '$actual', expected '$expected'"
+              exit 1
+            fi
+            if [ ! -e ".build/release/$name" ]; then
+              ln -s "$src" ".build/release/$name"
+            fi
+          done
+          .build/release/scanjet --version
+
+      - name: Bundle app
+        run: ./scripts/bundle-app.sh
+
+      - name: Package DMG
+        run: ./scripts/package-dmg.sh "Scanjet-200-${{ needs.version.outputs.version }}-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Scanjet-200-${{ needs.version.outputs.version }}-${{ matrix.arch }}
+          path: Scanjet-200-${{ needs.version.outputs.version }}-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Scanjet-200-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(./scripts/version.sh)
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/*.dmg \
+            --title "Scanjet 200 ${version}" \
+            --generate-notes

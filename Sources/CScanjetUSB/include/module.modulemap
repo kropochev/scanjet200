@@ -1,0 +1,7 @@
+module CScanjetUSB {
+    header "scanjet_usb.h"
+    header "scanjet_png.h"
+    header "scanjet_jpeg.h"
+    header "scanjet_transpose.h"
+    export *
+}

@@ -1,0 +1,4 @@
+module Clibusb {
+    header "libusb.h"
+    export *
+}
