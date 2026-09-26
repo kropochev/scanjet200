@@ -27,6 +27,7 @@ final class CLIParseTests: XCTestCase {
         XCTAssertEqual(try ScanRequest.parseCLI(["--kind", "gray"]).kind, .blackAndWhite)
         XCTAssertEqual(try ScanRequest.parseCLI(["--kind", "bw"]).kind, .blackAndWhite)
         XCTAssertEqual(try ScanRequest.parseCLI(["--kind", "text"]).kind, .text)
+        XCTAssertEqual(try ScanRequest.parseCLI(["--kind", "photo"]).kind, .photo)
     }
 
     func testModeIsKindAliasAndKindWins() throws {

@@ -65,8 +65,11 @@ scan and calibrate options:
   -o, --output PATH    File or folder (default scan.tiff in the current directory)
   --name NAME          File name without extension (default scan)
   --dpi N              Resolution: 75 100 150 200 300 600 1200 2400 (default 300)
-  --kind KIND          colour | gray | text (default colour)
+  --kind KIND          colour | gray | text | photo (default colour)
   --mode MODE          color | gray (same as --kind colour | gray)
+  --photo-subject SRC  colour-print | bw-print | colour-negative | bw-negative
+  --photo-layout LAY   prints | strip
+  --photo-format FMT   auto | 35mm | half-frame | 6x4.5 | 6x6 | 6x9 | 16mm | 110 | 127
   --colours DEPTH      millions (8-bit) | billions (16-bit, TIFF and PNG only)
   --size SIZE          a4 | letter (default a4)
   --orientation DEG    0 | 90 | 180 | 270 (default 0)

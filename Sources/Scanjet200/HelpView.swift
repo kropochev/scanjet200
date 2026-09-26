@@ -24,14 +24,18 @@ struct HelpView: View {
                     Text("Turn on Use Custom Size and drag on the glass to choose the region. Size (A4 / US Letter) is used when custom size is off.")
                     Text("Orientation rotates the saved file to match how the page sits on the glass.")
                     Text("Scan writes to the folder in Scan To, using Name and Format. If the file exists, a number is appended unless Combine is on.")
+                    Text("In Photo with Prints, Scan saves the chosen region as one photo. With Film strip, Scan does not write files yet. Yellow boxes mark each frame: drag them onto the film, add or delete boxes, then Save. Discard throws the scan away.")
                     Text("Cancel stops the pass and returns the carriage home. A partial file is not saved.")
                 }
 
                 section("Colour and format") {
-                    Text("Kind: Colour, Black & White, or Text (high-contrast).")
+                    Text("Kind: Colour, Black & White, Text (high-contrast), or Photo.")
+                    Text("Photo finds a film strip on the glass after Scan. Choose the film size (35 mm, half-frame 18×24, 120, 16 mm, 110, 127) or Auto. GOST / DIN / ASA on the box is speed, not the frame size — Soviet Chaika and Agat are often 35 mm half-frame; Lubitel is 120 6×6.")
+                    Text("Colour and black-and-white prints sit face-down; choose the region on the glass to crop to the print. A film strip is inverted to a positive and split into frames.")
+                    Text("The Scanjet 200 has no backlight. Negatives are inverted from a reflective scan — readable, not archival. A lightbox on top of the film helps a lot.")
                     Text("Millions is 8-bit. Billions is 16-bit and only for TIFF and PNG. JPEG, HEIC, GIF, BMP, and PDF stay 8-bit.")
-                    Text("Image Correction: None leaves the scan as captured. Manual adjusts brightness, tint, temperature, and saturation on the glass after Overview. Restore Defaults centres the sliders. Scan writes the same look into the file.")
-                    Text("Combine appends pages into one PDF or multi-page TIFF when the file already exists.")
+                    Text("Image Correction: None leaves the scan as captured. Manual adjusts brightness, tint, temperature, and saturation on the glass after Overview. Restore Defaults centres the sliders. Scan writes the same look into the file. In Photo, correction is applied to each frame when you save, after invert.")
+                    Text("Combine appends pages into one PDF or multi-page TIFF when the file already exists. It is not used in Photo.")
                 }
 
                 section("Command line") {

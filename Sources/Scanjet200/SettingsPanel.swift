@@ -9,12 +9,13 @@ struct SettingsPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Form {
-                        Picker("Kind:", selection: $model.request.kind) {
+                        Picker("Kind:", selection: kindBinding) {
                             Text("Colour").tag(ScanKind.colour)
                             Text("Black & White").tag(ScanKind.blackAndWhite)
                             Text("Text").tag(ScanKind.text)
+                            Text("Photo").tag(ScanKind.photo)
                         }
-                        .tooltip("Colour photo, grayscale, or high-contrast text.")
+                        .tooltip("Colour, grayscale, high-contrast text, or Photo to split prints and negatives into files.")
 
                         Picker("Colours:", selection: $model.request.colorDepth) {
                             Text("Millions").tag(ColorDepth.millions)
@@ -23,7 +24,7 @@ struct SettingsPanel: View {
                         .tooltip("Millions is 8-bit colour. Billions is 16-bit, available for TIFF and PNG.")
                         .disabled(!model.request.format.supportsBillions || model.request.kind == .text)
 
-                        Picker("Resolution:", selection: $model.request.dpi) {
+                        Picker("Resolution:", selection: dpiBinding) {
                             ForEach(ScanMode.supportedOutputDPI, id: \.self) { dpi in
                                 Text("\(dpi)").tag(dpi)
                             }
@@ -64,7 +65,9 @@ struct SettingsPanel: View {
                         }
 
                         TextField("Name:", text: $model.request.name)
-                            .tooltip("File name without extension. A number is added if the file already exists.")
+                            .tooltip(model.request.kind == .photo
+                                     ? "File name without extension. Several photos become Name-1, Name-2, …"
+                                     : "File name without extension. A number is added if the file already exists.")
 
                         Picker("Format:", selection: $model.request.format) {
                             ForEach(OutputFormat.allCases, id: \.self) { format in
@@ -86,10 +89,16 @@ struct SettingsPanel: View {
                             Text("None").tag(ImageCorrectionMode.none)
                             Text("Manual").tag(ImageCorrectionMode.manual)
                         }
-                        .tooltip("None keeps the scan as captured. Manual: Overview, then drag the sliders — the glass updates live. Scan writes the same look.")
+                        .tooltip(model.request.kind == .photo
+                                 ? "None keeps each photo as captured (after invert for film). Manual: drag the sliders — Save writes the same look into each file."
+                                 : "None keeps the scan as captured. Manual: Overview, then drag the sliders — the glass updates live. Scan writes the same look.")
                     }
                     .formStyle(.grouped)
                     .padding(.top, 8)
+
+                    if model.request.kind == .photo {
+                        PhotoSettingsView()
+                    }
 
                     if model.request.imageCorrection.mode == .manual {
                         ImageCorrectionManualView(
@@ -111,6 +120,20 @@ struct SettingsPanel: View {
             Spacer(minLength: 0)
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var kindBinding: Binding<ScanKind> {
+        Binding(
+            get: { model.request.kind },
+            set: { model.setKind($0) }
+        )
+    }
+
+    private var dpiBinding: Binding<Int> {
+        Binding(
+            get: { model.request.dpi },
+            set: { model.setDPI($0) }
+        )
     }
 
     private func formatLabel(_ format: OutputFormat) -> String {

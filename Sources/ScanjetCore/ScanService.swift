@@ -1,10 +1,21 @@
 import Foundation
+import ImageIO
+import CoreGraphics
 
 public struct ScanResult: Sendable {
     public var outputURL: URL
     public var width: Int
     public var height: Int
     public var previewURL: URL?
+    public var outputURLs: [URL]
+
+    public init(outputURL: URL, width: Int, height: Int, previewURL: URL? = nil, outputURLs: [URL]? = nil) {
+        self.outputURL = outputURL
+        self.width = width
+        self.height = height
+        self.previewURL = previewURL
+        self.outputURLs = outputURLs ?? [outputURL]
+    }
 }
 
 public enum ScanService {
@@ -32,7 +43,10 @@ public enum ScanService {
 
     public static func scan(request: ScanRequest, progress: ScanProgressHandler? = nil,
                             cancel: ScanCancel? = nil) throws -> ScanResult {
-        try withLogger(progress) {
+        if request.kind == .photo {
+            return try scanPhotoAndSave(request: request, progress: progress, cancel: cancel)
+        }
+        return try withLogger(progress) {
             try autoreleasepool {
                 try cancel?.throwIfRequested()
                 let combineExisting = request.combine && request.format.supportsCombine
@@ -136,6 +150,95 @@ public enum ScanService {
         }
     }
 
+    /// Capture into a temp TIFF, detect frames, do not write final files. GUI review uses this.
+    public static func capturePhoto(request: ScanRequest, progress: ScanProgressHandler? = nil,
+                                    cancel: ScanCancel? = nil) throws -> PhotoReviewSession {
+        try withLogger(progress) {
+            try autoreleasepool {
+                try cancel?.throwIfRequested()
+                var capture = request
+                capture.orientation = .deg0
+                capture.format = .tiff
+                capture.combine = false
+                let temp = request.tempTIFFURL()
+                let captured = try performScan(
+                    capture, outputPath: temp.path,
+                    rawBeside: request.keepRaw ? request.outputURL(combineExisting: false).path : nil,
+                    cancel: cancel,
+                    encoding: .tiff,
+                    makePreview: true
+                )
+                try cancel?.throwIfRequested()
+                ScanLogger.log(.exporting, 0, "finding photos")
+                let detectImage: CGImage
+                if let preview = captured.previewURL,
+                   let source = CGImageSourceCreateWithURL(preview as CFURL, nil),
+                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                    detectImage = image
+                } else if let sampled = try TIFFPreview.subsampledImage(from: temp, maxDimension: 1600) {
+                    detectImage = sampled
+                } else {
+                    throw ScanjetError.io("cannot build a preview for photo detection")
+                }
+                let region = request.effectiveRegion
+                let detected = PhotoDetector.detect(
+                    image: detectImage, capture: region, settings: request.photo
+                )
+                ProcessMemory.releaseToOS()
+                return PhotoReviewSession(
+                    captureURL: temp,
+                    previewURL: captured.previewURL,
+                    region: region,
+                    dpi: request.dpi,
+                    width: captured.width,
+                    height: captured.height,
+                    frames: detected.frames,
+                    stripBounds: detected.stripBounds,
+                    detectedFilmFormat: detected.filmFormat
+                )
+            }
+        }
+    }
+
+    public static func savePhotoSession(_ session: PhotoReviewSession,
+                                        request: ScanRequest) throws -> ScanResult {
+        ScanLogger.log(.exporting, 0, "writing photos")
+        let urls = try PhotoExport.save(
+            captureURL: session.captureURL,
+            frames: session.frames,
+            capture: session.region,
+            request: request
+        )
+        session.removeTemporaryFiles()
+        let preview: URL?
+        if let last = urls.last {
+            preview = try? ImageExporter.makePreviewPNG(from: last, request: nil)
+        } else {
+            preview = nil
+        }
+        ScanLogger.log(.done, 1, urls.last?.path ?? "")
+        ProcessMemory.releaseToOS()
+        let first = urls.first ?? request.outputURL(combineExisting: false)
+        return ScanResult(
+            outputURL: first,
+            width: session.width,
+            height: session.height,
+            previewURL: preview,
+            outputURLs: urls
+        )
+    }
+
+    private static func scanPhotoAndSave(request: ScanRequest, progress: ScanProgressHandler? = nil,
+                                         cancel: ScanCancel? = nil) throws -> ScanResult {
+        let session = try capturePhoto(request: request, progress: progress, cancel: cancel)
+        do {
+            return try savePhotoSession(session, request: request)
+        } catch {
+            session.removeTemporaryFiles()
+            throw error
+        }
+    }
+
     @discardableResult
     private static func performScan(_ request: ScanRequest, outputPath: String,
                                     rawBeside: String? = nil,
@@ -152,7 +255,7 @@ public enum ScanService {
         options.thresholdText = thresholdText
         options.appendOutput = append
         options.rotate90Clockwise = rotate90Clockwise
-        if request.kind != .colour {
+        if !request.capturesColour {
             options.mode = .gray
         }
 

@@ -7,6 +7,7 @@ public enum ScanKind: String, CaseIterable, Sendable {
     case colour
     case blackAndWhite
     case text
+    case photo
 }
 
 public enum ColorDepth: String, CaseIterable, Sendable {
@@ -130,8 +131,9 @@ extension ScanKind {
         case "black-and-white", "blackandwhite", "bw", "gray", "grey", "grayscale", "greyscale":
             return .blackAndWhite
         case "text": return .text
+        case "photo": return .photo
         default:
-            throw ScanjetError.usage("kind: colour | gray | text")
+            throw ScanjetError.usage("kind: colour | gray | text | photo")
         }
     }
 }
@@ -219,6 +221,7 @@ public struct ScanRequest: Sendable {
     public var keepRaw = false
     public var gamma: Double?
     public var feed: UInt32?
+    public var photo = PhotoSettings()
     /// When set (CLI `-o file`), write exactly this path instead of unique-ifying.
     public var explicitOutputURL: URL?
 
@@ -281,6 +284,35 @@ public struct ScanRequest: Sendable {
         if kind == .text { return .millions }
         if !format.supportsBillions { return .millions }
         return colorDepth
+    }
+
+    public var capturesColour: Bool {
+        switch kind {
+        case .colour: return true
+        case .photo: return photo.subject.isColour
+        case .blackAndWhite, .text: return false
+        }
+    }
+
+    /// File names for Photo save: `Name.jpg` when there is one frame, `Name-1.jpg`… when several.
+    public func photoOutputURLs(count: Int) -> [URL] {
+        guard count > 0 else { return [] }
+        if count == 1 {
+            if let explicitOutputURL { return [explicitOutputURL] }
+            return [uniqueURL(outputDirectory.appendingPathComponent(name).appendingPathExtension(format.fileExtension))]
+        }
+        var urls: [URL] = []
+        var n = 1
+        while urls.count < count {
+            let candidate = outputDirectory
+                .appendingPathComponent("\(name)-\(n)")
+                .appendingPathExtension(format.fileExtension)
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                urls.append(candidate)
+            }
+            n += 1
+        }
+        return urls
     }
 
     public func outputURL(combineExisting: Bool) -> URL {
@@ -482,7 +514,7 @@ extension ScanRequest {
         options.shadingPath = shadingPath
         options.keepRaw = keepRaw
         options.gamma = gamma
-        options.mode = kind == .colour ? .color : .gray
+        options.mode = capturesColour ? .color : .gray
         options.cropXMM = region.xMM
         options.cropYMM = region.yMM
         options.cropWidthMM = region.widthMM
@@ -508,6 +540,7 @@ extension ScanRequest {
         var kindArg: ScanKind?
         var modeArg: ScanKind?
         var heightArg: Double?
+        var dpiWasSet = false
 
         var i = 0
         while i < args.count {
@@ -549,6 +582,13 @@ extension ScanRequest {
                 }
                 _ = try ScanMode.choose(outputDPI: value)
                 request.dpi = value
+                dpiWasSet = true
+            case "--photo-subject":
+                request.photo.subject = try PhotoSubject.parseCLI(try takeValue())
+            case "--photo-layout":
+                request.photo.layout = try PhotoLayout.parseCLI(try takeValue())
+            case "--photo-format":
+                request.photo.filmFormat = try PhotoFilmFormat.parseCLI(try takeValue())
             case "--height":
                 let raw = try takeValue()
                 guard let value = Double(raw), value > 0 else {
@@ -583,6 +623,15 @@ extension ScanRequest {
             request.kind = kindArg
         } else if let modeArg {
             request.kind = modeArg
+        }
+
+        if request.kind == .photo {
+            if formatArg == nil && outputArg == nil {
+                request.format = .jpeg
+            }
+            if !dpiWasSet {
+                request.dpi = request.photo.subject.defaultDPI
+            }
         }
 
         if let heightArg {
@@ -633,6 +682,9 @@ extension ScanRequest {
             }
         }
 
+        if request.kind == .photo && request.combine {
+            throw ScanjetError.usage("combine is not available for photo")
+        }
         if request.combine && !request.format.supportsCombine {
             throw ScanjetError.usage("combine is only supported for PDF and TIFF")
         }

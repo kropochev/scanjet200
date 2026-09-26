@@ -33,6 +33,7 @@ func commandScan(request: ScanRequest) throws {
         case .colour: return "colour"
         case .blackAndWhite: return "gray"
         case .text: return "text"
+        case .photo: return "photo"
         }
     }()
     let sizeLabel = request.paperSize == .a4 ? "A4" : "US Letter"
@@ -54,7 +55,14 @@ func commandScan(request: ScanRequest) throws {
     }
 
     let image = try ScanService.scan(request: request)
-    print("done: \(image.outputURL.path)  \(image.width)×\(image.height)")
+    if image.outputURLs.count > 1 {
+        print("done: \(image.outputURLs.count) files")
+        for url in image.outputURLs {
+            print("  \(url.path)")
+        }
+    } else {
+        print("done: \(image.outputURL.path)  \(image.width)×\(image.height)")
+    }
 }
 
 func commandCalibrate(_ device: GenesysDevice, options: ScanOptions) throws {

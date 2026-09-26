@@ -8,12 +8,18 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                GlassView(selection: $model.selection, previewImage: model.displayPreview,
-                          pinPreviewToSelection: model.isBusy && model.livePreviewActive
-                            && model.pinLivePreviewToSelection,
+                GlassView(selection: $model.selection,
+                          photoFrames: $model.photoFrames,
+                          selectedPhotoFrameID: $model.selectedPhotoFrameID,
+                          previewImage: model.displayPreview,
+                          pinPreviewToSelection: (model.isBusy && model.livePreviewActive
+                            && model.pinLivePreviewToSelection)
+                            || model.isPhotoReview,
                           paperSize: model.request.paperSize,
                           useCustomSize: model.request.useCustomSize,
-                          connected: model.scannerConnected)
+                          connected: model.scannerConnected,
+                          photoReview: model.isPhotoReview,
+                          onPhotoFramesEdited: { model.markPhotoFramesEdited() })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if model.showDetails {
@@ -24,6 +30,10 @@ struct ContentView: View {
 
             if model.isBusy {
                 ScanProgressBar(fraction: model.progressFraction)
+            }
+
+            if !model.isBusy, model.isPhotoReview {
+                photoReviewBanner
             }
 
             if !model.isBusy, let warning = model.calibrationWarning {
@@ -42,18 +52,45 @@ struct ContentView: View {
                     model.overview()
                 }
                 .tooltip("Preview the glass at 75 dpi. Takes about 13 seconds.")
-                .disabled(model.isBusy || !model.scannerConnected)
+                .disabled(model.isBusy || !model.scannerConnected || model.isPhotoReview)
                 if model.isBusy {
                     Button("Cancel") {
                         model.cancel()
                     }
                     .tooltip("Stop and return the carriage home. A partial file is not saved.")
                     .keyboardShortcut(.cancelAction)
+                } else if model.isPhotoReview {
+                    Button("Discard") {
+                        model.discardPhotoSession()
+                    }
+                    .tooltip("Throw away this scan without saving photos.")
+                    Button("Add") {
+                        model.addPhotoFrame()
+                    }
+                    .tooltip("Add another crop rectangle on the glass.")
+                    Button("Rotate") {
+                        model.rotateSelectedPhotoFrame()
+                    }
+                    .tooltip("Rotate the selected photo 90° clockwise.")
+                    .disabled(model.selectedPhotoFrameID == nil)
+                    Button("Delete") {
+                        model.deleteSelectedPhotoFrame()
+                    }
+                    .tooltip("Remove the selected photo frame.")
+                    .disabled(model.selectedPhotoFrameID == nil)
+                    Button(savePhotosTitle) {
+                        model.savePhotos()
+                    }
+                    .tooltip("Crop each frame and write a file per photo.")
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.photoFrames.isEmpty)
                 } else {
                     Button("Scan") {
                         model.scan()
                     }
-                    .tooltip("Scan the selected area with the current settings.")
+                    .tooltip(model.request.kind == .photo
+                             ? "Scan, then adjust photo frames on the glass before saving."
+                             : "Scan the selected area with the current settings.")
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.scannerConnected)
                 }
@@ -65,7 +102,7 @@ struct ContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) {
             TooltipBalloon()
-                .padding(.bottom, (!model.isBusy && model.calibrationWarning != nil) ? 96 : 48)
+                .padding(.bottom, tooltipBottomPadding)
                 .allowsHitTesting(false)
         }
         .alert(model.lastErrorIsCancellation ? "Cancelled" : "Error", isPresented: Binding(
@@ -85,6 +122,34 @@ struct ContentView: View {
                 openWindow(id: "calibrate")
             }
         }
+    }
+
+    private var savePhotosTitle: String {
+        let count = model.photoFrames.count
+        if count <= 1 { return "Save photo" }
+        return "Save \(count) photos"
+    }
+
+    private var tooltipBottomPadding: CGFloat {
+        var extra: CGFloat = 48
+        if !model.isBusy, model.calibrationWarning != nil { extra += 48 }
+        if !model.isBusy, model.isPhotoReview { extra += 44 }
+        return extra
+    }
+
+    private var photoReviewBanner: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "crop")
+                .foregroundStyle(.secondary)
+            Text("Yellow boxes mark each photo. Drag them onto the film, then Save.")
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.12))
     }
 
     private func calibrationBanner(_ text: String) -> some View {

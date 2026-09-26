@@ -60,6 +60,9 @@ final class ScanViewModel: ObservableObject {
     /// Hardware dpi values that have a shading file on this Mac.
     @Published var calibratedDPI: Set<Int> = []
     @Published var activeCalibrationDPI: Int?
+    @Published var photoSession: PhotoReviewSession?
+    @Published var photoFrames: [PhotoFrame] = []
+    @Published var selectedPhotoFrameID: UUID?
 
     private var pollTimer: Timer?
     private var cancelToken: ScanCancel?
@@ -70,6 +73,9 @@ final class ScanViewModel: ObservableObject {
     private var sourcePreviewCG: CGImage?
     private var liveFilledThroughY = 0
     private var didOfferCalibrationAssistant = false
+    private var photoDPIFollowsSubject = true
+    private var applyingPhotoDefaults = false
+    private var photoTempURLs: [URL] = []
 
     /// Re-filter the glass image as the sliders move — still Overview/Scan, or the live pass.
     func refreshDisplayPreview() {
@@ -77,13 +83,18 @@ final class ScanViewModel: ObservableObject {
             displayPreview = nil
             return
         }
-        guard request.imageCorrection.mode == .manual,
-              request.imageCorrection.shouldApply else {
+        let photoAdjust = photoSession != nil
+            && !livePreviewActive
+            && (request.photo.effectiveInvert
+                || request.photo.effectiveOrangeMask
+                || request.photo.effectiveAutoLevels)
+        let correct = request.imageCorrection.mode == .manual && request.imageCorrection.shouldApply
+        guard photoAdjust || correct else {
             displayPreview = previewImage
             return
         }
 
-        if livePreviewActive {
+        if livePreviewActive, correct, !photoAdjust {
             displayPreview = correctedLivePreview(from: previewImage)
             return
         }
@@ -92,12 +103,17 @@ final class ScanViewModel: ObservableObject {
             var rect = CGRect(origin: .zero, size: previewImage.size)
             sourcePreviewCG = previewImage.cgImage(forProposedRect: &rect, context: nil, hints: nil)
         }
-        guard let source = sourcePreviewCG else {
+        guard var current = sourcePreviewCG else {
             displayPreview = previewImage
             return
         }
-        let corrected = request.imageCorrection.applying(to: source)
-        let image = NSImage(cgImage: corrected, size: NSSize(width: corrected.width, height: corrected.height))
+        if photoAdjust {
+            current = NegativeConvert.applying(current, settings: request.photo)
+        }
+        if correct {
+            current = request.imageCorrection.applying(to: current)
+        }
+        let image = NSImage(cgImage: current, size: NSSize(width: current.width, height: current.height))
         image.cacheMode = .never
         displayPreview = image
     }
@@ -135,6 +151,9 @@ final class ScanViewModel: ObservableObject {
 
     deinit {
         pollTimer?.invalidate()
+        for url in photoTempURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func refreshScanner() {
@@ -172,7 +191,127 @@ final class ScanViewModel: ObservableObject {
     }
 
     var combineEnabled: Bool {
-        request.format.supportsCombine
+        request.kind != .photo && request.format.supportsCombine
+    }
+
+    var isPhotoReview: Bool {
+        photoSession != nil
+    }
+
+    func setKind(_ kind: ScanKind) {
+        let old = request.kind
+        if kind != .photo {
+            discardPhotoSession()
+        }
+        request.kind = kind
+        if kind == .photo, old != .photo {
+            applyPhotoKindDefaults()
+        }
+    }
+
+    func setDPI(_ dpi: Int) {
+        request.dpi = dpi
+        if request.kind == .photo, !applyingPhotoDefaults {
+            photoDPIFollowsSubject = false
+        }
+    }
+
+    func setPhotoSubject(_ subject: PhotoSubject) {
+        request.photo.subject = subject
+        if photoDPIFollowsSubject {
+            applyingPhotoDefaults = true
+            request.dpi = subject.defaultDPI
+            applyingPhotoDefaults = false
+        }
+    }
+
+    func setPhotoLayout(_ layout: PhotoLayout) {
+        request.photo.layout = layout
+    }
+
+    func setPhotoFilmFormat(_ format: PhotoFilmFormat) {
+        request.photo.filmFormat = format
+        guard request.photo.layout.isFilm, photoSession != nil else { return }
+        let bounds = photoSession?.stripBounds
+            ?? ScanRegion.union(photoFrames.map(\.region))
+            ?? photoSession?.region
+        guard let bounds else { return }
+        reslicePhotoStrip(
+            count: PhotoDetector.estimatedFrameCount(strip: bounds, format: format)
+        )
+    }
+
+    func applyPhotoKindDefaults() {
+        applyingPhotoDefaults = true
+        request.format = .jpeg
+        request.combine = false
+        request.dpi = request.photo.subject.defaultDPI
+        photoDPIFollowsSubject = true
+        applyingPhotoDefaults = false
+    }
+
+    func markPhotoFramesEdited() {
+        guard var session = photoSession else { return }
+        session.frames = photoFrames
+        session.framesWereEdited = true
+        photoSession = session
+    }
+
+    func reslicePhotoStrip(count: Int) {
+        guard var session = photoSession else { return }
+        let bounds = session.stripBounds
+            ?? ScanRegion.union(photoFrames.map(\.region))
+            ?? session.region
+        session.stripBounds = bounds
+        session.frames = PhotoDetector.splitStrip(bounds: bounds, count: count)
+        session.framesWereEdited = true
+        session.detectedFilmFormat = request.photo.filmFormat.resolved(for: bounds)
+        photoSession = session
+        photoFrames = session.frames
+        selectedPhotoFrameID = session.frames.first?.id
+    }
+
+    func addPhotoFrame() {
+        let capture = photoSession?.region ?? selection
+        let frame = PhotoFrame(region: ScanRegion(
+            xMM: capture.xMM + capture.widthMM * 0.25,
+            yMM: capture.yMM + capture.heightMM * 0.25,
+            widthMM: max(20, capture.widthMM * 0.5),
+            heightMM: max(20, capture.heightMM * 0.5)
+        ))
+        photoFrames.append(frame)
+        selectedPhotoFrameID = frame.id
+        markPhotoFramesEdited()
+    }
+
+    func rotateSelectedPhotoFrame() {
+        guard let id = selectedPhotoFrameID,
+              let index = photoFrames.firstIndex(where: { $0.id == id }) else { return }
+        photoFrames[index] = photoFrames[index].rotating90Clockwise()
+        markPhotoFramesEdited()
+    }
+
+    func deleteSelectedPhotoFrame() {
+        guard let id = selectedPhotoFrameID else { return }
+        photoFrames.removeAll { $0.id == id }
+        selectedPhotoFrameID = photoFrames.first?.id
+        markPhotoFramesEdited()
+    }
+
+    func discardPhotoSession() {
+        photoSession?.removeTemporaryFiles()
+        photoSession = nil
+        photoFrames = []
+        selectedPhotoFrameID = nil
+        photoTempURLs = []
+        pinLivePreviewToSelection = false
+        refreshDisplayPreview()
+    }
+
+    func savePhotos() {
+        guard var session = photoSession, !isBusy else { return }
+        session.frames = photoFrames
+        runJob(kind: .savePhotos(session))
     }
 
     func pickOutputFolder() {
@@ -205,13 +344,15 @@ final class ScanViewModel: ObservableObject {
     }
 
     private enum JobKind: Sendable {
-        case overview, scan, calibrate(Int)
+        case overview, scan, calibrate(Int), savePhotos(PhotoReviewSession)
     }
 
     private struct JobOutcome: Sendable {
-        var previewURL: URL?
-        var savedPath: String?
-        var notice: String?
+        var previewURL: URL? = nil
+        var savedPath: String? = nil
+        var notice: String? = nil
+        var photoSession: PhotoReviewSession? = nil
+        var keepPinToSelection = false
     }
 
     private func runJob(kind: JobKind) {
@@ -229,13 +370,23 @@ final class ScanViewModel: ObservableObject {
         case .scan:
             pinLivePreviewToSelection = true
             activeCalibrationDPI = nil
+            if photoSession != nil {
+                discardPhotoSession()
+                pinLivePreviewToSelection = true
+            }
         case .overview:
             pinLivePreviewToSelection = false
             activeCalibrationDPI = nil
             previewIsOverview = true
+            if photoSession != nil {
+                discardPhotoSession()
+            }
         case .calibrate(let dpi):
             pinLivePreviewToSelection = false
             activeCalibrationDPI = dpi
+        case .savePhotos:
+            pinLivePreviewToSelection = true
+            activeCalibrationDPI = nil
         }
         liveCanvas = nil
         liveFilledThroughY = 0
@@ -258,6 +409,23 @@ final class ScanViewModel: ObservableObject {
                             let result = try ScanService.overview(request: jobRequest, progress: handler, cancel: cancel)
                             return JobOutcome(previewURL: result.previewURL, savedPath: nil, notice: nil)
                         case .scan:
+                            if jobRequest.kind == .photo, !jobRequest.photo.layout.isFilm {
+                                let result = try ScanService.scan(request: jobRequest, progress: handler, cancel: cancel)
+                                return JobOutcome(previewURL: result.previewURL,
+                                                  savedPath: result.outputURL.path,
+                                                  notice: Self.savedPhotosNotice(urls: result.outputURLs))
+                            }
+                            if jobRequest.kind == .photo {
+                                let session = try ScanService.capturePhoto(
+                                    request: jobRequest, progress: handler, cancel: cancel
+                                )
+                                return JobOutcome(
+                                    previewURL: session.previewURL,
+                                    notice: "Yellow boxes mark each photo. Drag them onto the film, then Save.",
+                                    photoSession: session,
+                                    keepPinToSelection: true
+                                )
+                            }
                             let result = try ScanService.scan(request: jobRequest, progress: handler, cancel: cancel)
                             return JobOutcome(previewURL: result.previewURL,
                                               savedPath: result.outputURL.path,
@@ -265,6 +433,14 @@ final class ScanViewModel: ObservableObject {
                         case .calibrate(let dpi):
                             let url = try ScanService.calibrate(dpi: dpi, progress: handler, cancel: cancel)
                             return JobOutcome(previewURL: nil, savedPath: url.path, notice: "Calibration saved")
+                        case .savePhotos(let session):
+                            let result = try ScanService.savePhotoSession(session, request: jobRequest)
+                            let notice = Self.savedPhotosNotice(urls: result.outputURLs)
+                            return JobOutcome(
+                                previewURL: result.previewURL,
+                                savedPath: result.outputURL.path,
+                                notice: notice
+                            )
                         }
                     }
                 }.value
@@ -336,6 +512,26 @@ final class ScanViewModel: ObservableObject {
             previewIsOverview = false
         case .calibrate:
             break
+        case .savePhotos:
+            previewIsOverview = false
+            photoSession = nil
+            photoFrames = []
+            selectedPhotoFrameID = nil
+            photoTempURLs = []
+            pinLivePreviewToSelection = false
+        }
+        if let session = outcome.photoSession {
+            photoSession = session
+            photoFrames = session.frames
+            selectedPhotoFrameID = session.frames.first?.id
+            photoTempURLs = [session.captureURL]
+            if let preview = session.previewURL {
+                photoTempURLs.append(preview)
+            }
+            pinLivePreviewToSelection = true
+        }
+        if outcome.keepPinToSelection {
+            pinLivePreviewToSelection = true
         }
         if let path = outcome.savedPath {
             lastSavedPath = path
@@ -377,5 +573,17 @@ final class ScanViewModel: ObservableObject {
             return "Saved \(name)"
         }
         return "Saved \(name) to \(folder)"
+    }
+
+    private nonisolated static func savedPhotosNotice(urls: [URL]) -> String {
+        guard let first = urls.first else { return "Saved photos" }
+        let folder = first.deletingLastPathComponent().lastPathComponent
+        if urls.count == 1 {
+            return savedNotice(for: first.path)
+        }
+        if folder.isEmpty {
+            return "Saved \(urls.count) photos"
+        }
+        return "Saved \(urls.count) photos to \(folder)"
     }
 }

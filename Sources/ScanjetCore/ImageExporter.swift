@@ -45,6 +45,7 @@ public enum ImageExporter {
     static func canPassThrough(_ request: ScanRequest, append: Bool) -> Bool {
         request.format == .tiff
             && request.kind != .text
+            && request.kind != .photo
             && request.orientation == .deg0
             && !request.imageCorrection.shouldApply
             && !append
@@ -148,7 +149,7 @@ public enum ImageExporter {
             current = request.imageCorrection.applying(to: current)
         }
         switch request.kind {
-        case .colour:
+        case .colour, .photo:
             break
         case .blackAndWhite:
             current = toGrayscale(current)
@@ -158,14 +159,14 @@ public enum ImageExporter {
         return current
     }
 
-    private static func bitmapInfo(for image: CGImage, alpha: CGImageAlphaInfo) -> CGBitmapInfo {
+    static func bitmapInfo(for image: CGImage, alpha: CGImageAlphaInfo) -> CGBitmapInfo {
         if image.bitsPerComponent == 16 {
             return CGBitmapInfo(rawValue: alpha.rawValue | CGBitmapInfo.byteOrder16Little.rawValue)
         }
         return CGBitmapInfo(rawValue: alpha.rawValue)
     }
 
-    private static func rotate(_ image: CGImage, degrees: Int) -> CGImage {
+    static func rotate(_ image: CGImage, degrees: Int) -> CGImage {
         let radians = CGFloat(degrees) * .pi / 180
         let w = image.width
         let h = image.height
@@ -186,7 +187,7 @@ public enum ImageExporter {
         return ctx.makeImage() ?? image
     }
 
-    private static func toGrayscale(_ image: CGImage) -> CGImage {
+    static func toGrayscale(_ image: CGImage) -> CGImage {
         let bpc = image.bitsPerComponent
         let colorSpace = CGColorSpaceCreateDeviceGray()
         guard let ctx = CGContext(data: nil, width: image.width, height: image.height,
@@ -221,8 +222,8 @@ public enum ImageExporter {
         return result
     }
 
-    private static func writeRaster(_ image: CGImage, to url: URL, format: OutputFormat,
-                                    append: Bool, dpi: Int) throws {
+    static func writeRaster(_ image: CGImage, to url: URL, format: OutputFormat,
+                            append: Bool, dpi: Int) throws {
         let type = try format.imageIOType()
         if append && format == .tiff {
             try appendTIFF(image, to: url, dpi: dpi)
