@@ -94,6 +94,7 @@ struct SettingsPanel: View {
                                  : "None keeps the scan as captured. Manual: Overview, then drag the sliders — the glass updates live. Scan writes the same look.")
                     }
                     .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
                     .padding(.top, 8)
 
                     if model.request.kind == .photo {

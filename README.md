@@ -16,7 +16,7 @@ USB ID: `03f0:1c05`. Optical resolution 2400 dpi, 48-bit CIS, A4 flatbed (~218 Ã
 
 **Mac**
 
-- macOS 13 Ventura or later (Intel or Apple Silicon).
+- macOS 13 Ventura or later on Apple Silicon.
 - Enough free disk for the pass: a 2400 dpi A4 page is about 3.5 GB of raw scratch plus the output file (about 1.7 GB as uncompressed TIFF). 300 dpi is a few tens of megabytes.
 - HEIC and JPEG 2000 depend on ImageIO on this Mac; if the codec is missing, the app reports an error instead of writing another format under that extension.
 
@@ -40,7 +40,7 @@ swift build -c release
 
 Clone with `--recurse-submodules` so `Vendor/libusb` is populated.
 
-The version in `VERSION` is compiled into both the GUI and `scanjet`. After changing it, run `./scripts/embed-version.sh` before building. A GitHub tag `v1.0.0` must match `VERSION`; the Build workflow then attaches `Scanjet-200-1.0.0-arm64.dmg` and `Scanjet-200-1.0.0-x86_64.dmg` to a GitHub Release.
+The version in `VERSION` is compiled into both the GUI and `scanjet`. After changing it, run `./scripts/embed-version.sh` before building. A GitHub tag `v1.0.0` must match `VERSION`; the Build workflow then attaches `Scanjet-200-1.0.0-arm64.dmg` to a GitHub Release.
 
 - GUI: `Scanjet 200.app` (created by `scripts/bundle-app.sh`)
 - Disk image: `Scanjet-200-<version>.dmg` (app plus an Applications shortcut)
