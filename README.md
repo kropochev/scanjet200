@@ -143,7 +143,7 @@ A 2400 dpi page is 3.5 GB of raw data and 1.7 GB of TIFF, so capture and decode 
 
 ### Calibration
 
-CIS segments differ in sensitivity by about 8%, which shows up as vertical bands and a blue cast. `scanjet calibrate` scans a clean white A4 sheet, averages each column per channel, and stores the reference at `~/Library/Application Support/scanjet/shading-<dpi>.bin`. `scan` and the GUI load it automatically. Use a flat, unmarked sheet — creases will bake into the profile. A cream sheet will push every later scan toward blue.
+CIS segments differ in sensitivity by about 8%, which shows up as vertical bands and a blue cast. Each column also has its own black level (about 420 counts of spread, even and odd pixels about 700 apart), which a white reference alone cannot remove: white comes out flat, but midtones and shadows keep fine vertical stripes. `scanjet calibrate` first makes a short pass with the lamp off to measure the black level of every column, then scans a clean white A4 sheet, averages each column per channel, and stores both references at `~/Library/Application Support/scanjet/shading-<dpi>.bin`. Each sample is then corrected as `black + (raw − dark) · (white − black) / (reference − dark)`. Profiles made before the lamp-off pass still load, but correct white only — run `calibrate` again. `scan` and the GUI load it automatically. Use a flat, unmarked sheet — creases will bake into the profile. A cream sheet will push every later scan toward blue.
 
 Each hardware pass has its own sensor width, so calibrate all four you use. 300 dpi also covers 75, 100, and 150 dpi; 600 dpi also covers 200 dpi. A profile belongs to this scanner and this Mac.
 

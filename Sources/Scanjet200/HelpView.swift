@@ -13,7 +13,8 @@ struct HelpView: View {
                 }
 
                 section("Calibrate") {
-                    Text("CIS segments differ in brightness and colour. Calibrate once per resolution with a clean, unmarked white A4 sheet on the glass.")
+                    Text("CIS segments differ in brightness, colour, and black level. Calibrate once per resolution with a clean, unmarked white A4 sheet on the glass: a short lamp-off pass measures black, then the sheet is scanned for white.")
+                    Text("Profiles made by earlier versions correct white only and leave fine stripes in midtones — calibrate again.")
                     Text("If this Mac has no profiles yet, a Calibration Assistant opens and a banner warns that scans will show vertical bands. Scanjet 200 → Calibrate also has the assistant and 300 / 600 / 1200 / 2400 dpi.")
                     Text("300 dpi also covers 75, 100, and 150 dpi; 600 dpi also covers 200 dpi. Use a flat, unmarked sheet — creases bake into the profile.")
                     Text("References are stored in ~/Library/Application Support/scanjet/ and belong to this scanner. Calibrate is disabled when the scanner is unplugged.")

@@ -5,7 +5,7 @@ final class LiveCISPreview {
     private let mode: ScanMode
     private let scale: Int
     private let color: Bool
-    private let shading: Shading?
+    private let correction: ShadingCorrection?
     private let lut: [UInt8]
     private let skipRaw: Int
     private let cropStart: Int
@@ -31,7 +31,7 @@ final class LiveCISPreview {
         self.mode = mode
         self.scale = max(1, scale)
         self.color = color
-        self.shading = shading
+        self.correction = shading.map(ShadingCorrection.init)
         self.lut = lut
         self.skipRaw = max(0, skipRaw)
         self.cropStart = max(0, min(mode.samplesPerLine, cropStart))
@@ -95,21 +95,14 @@ final class LiveCISPreview {
         let width = mode.samplesPerLine
         let bpl = mode.bytesPerLine
         let step = factor * scale
-        let target = UInt32(shading?.target ?? 0)
 
         for ox in 0..<outW {
             let x = min(cropEnd - 1, cropStart + ox * step)
             let mirrored = width - 1 - x
             func sample(_ channel: Int) -> UInt8 {
                 let i = channel * bpl + mirrored * 2
-                var value = UInt32(row[i]) << 8 | UInt32(row[i + 1])
-                if let reference = shading?.reference[channel] {
-                    let ref = UInt32(reference[mirrored])
-                    if ref > 256 {
-                        value = min(65535, value * target / ref)
-                    }
-                }
-                return lut[Int(value)]
+                let value = Int(row[i]) << 8 | Int(row[i + 1])
+                return lut[Int(correction?.apply(value, channel: channel, x: mirrored) ?? UInt16(value))]
             }
             let r: UInt8
             let g: UInt8

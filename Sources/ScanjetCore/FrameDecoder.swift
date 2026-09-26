@@ -114,23 +114,17 @@ public struct FrameDecoder {
     public var outputWidth: Int { max(1, croppedWidth / scale) }
     public var samplesPerPixel: Int { color ? 3 : 1 }
 
-    private func loadRGB(_ reader: BlockReader, into planes: inout [[UInt16]]) throws -> Bool {
+    private func loadRGB(_ reader: BlockReader, correction: ShadingCorrection?,
+                         into planes: inout [[UInt16]]) throws -> Bool {
         let width = mode.samplesPerLine
         for channel in 0..<3 {
             guard let bytes = try reader.read(mode.bytesPerLine) else { return false }
             let base = bytes.startIndex
-            let reference = shading?.reference[channel]
-            let target = UInt32(shading?.target ?? 0)
             for x in 0..<width {
-                let i = base + (width - 1 - x) * 2
-                var value = UInt32(bytes[i]) << 8 | UInt32(bytes[i + 1])
-                if let reference {
-                    let ref = UInt32(reference[width - 1 - x])
-                    if ref > 256 {
-                        value = min(65535, value * target / ref)
-                    }
-                }
-                planes[channel][x] = UInt16(value)
+                let sensor = width - 1 - x
+                let i = base + sensor * 2
+                let value = Int(bytes[i]) << 8 | Int(bytes[i + 1])
+                planes[channel][x] = correction?.apply(value, channel: channel, x: sensor) ?? UInt16(value)
             }
         }
         return true
@@ -159,8 +153,9 @@ public struct FrameDecoder {
         let expected = max(expectedRows, 1)
         let divisor = UInt32(scale * scale)
         let billions = colorDepth == .billions
+        let correction = shading.map(ShadingCorrection.init)
 
-        while try loadRGB(reader, into: &planes) {
+        while try loadRGB(reader, correction: correction, into: &planes) {
             for ox in 0..<outW {
                 let from = c0 + ox * scale
                 if color {

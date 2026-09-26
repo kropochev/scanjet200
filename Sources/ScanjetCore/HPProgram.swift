@@ -92,7 +92,8 @@ enum HPProgram {
     /// Run init up to capture start, patching frame height (LINCNT)
     /// and feed to the top of the frame (FEEDL).
     static func runInit(_ device: GenesysDevice, mode: ScanMode,
-                        lineCount: UInt32, feedLines: UInt32, verbose: Bool = true) throws {
+                        lineCount: UInt32, feedLines: UInt32, lampOff: Bool = false,
+                        verbose: Bool = true) throws {
         let program = try load(mode)
         var patched = program.blobs
 
@@ -119,9 +120,23 @@ enum HPProgram {
             0x3f: UInt8(feedLines & 0xff)
         ])
 
+        // LAMPPWR (0x03 bit 4) off keeps the CIS LEDs dark for the whole pass:
+        // the frame is then the per-column black level used by calibration.
+        if lampOff {
+            for index in 0..<program.startIndex {
+                guard case .controlOut(let request, let value, _, let off, let len) = program.ops[index],
+                      request == 0x04, value == 0x83 else { continue }
+                var i = off
+                while i + 1 < off + len {
+                    if patched[i] == 0x03 { patched[i + 1] &= ~0x10 }
+                    i += 2
+                }
+            }
+        }
+
         if verbose {
             print("  init \(mode.resource): \(program.startIndex + 1) ops, "
-                  + "LINCNT=\(lineCount) FEEDL=\(feedLines)")
+                  + "LINCNT=\(lineCount) FEEDL=\(feedLines)" + (lampOff ? ", lamp off" : ""))
         }
 
         for op in program.ops[0...program.startIndex] {

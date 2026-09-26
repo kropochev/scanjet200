@@ -145,7 +145,8 @@ public final class ScanEngine: @unchecked Sendable {
 
         try ensureHome()
         try throwIfCancelled()
-        try HPProgram.runInit(device, mode: mode, lineCount: lineCount, feedLines: options.feedLines)
+        try HPProgram.runInit(device, mode: mode, lineCount: lineCount, feedLines: options.feedLines,
+                              lampOff: options.lampOff)
         try throwIfCancelled()
 
         guard try waitForImageData(timeout: 15.0) else {
@@ -293,6 +294,29 @@ public final class ScanEngine: @unchecked Sendable {
                             samplesPerPixel: decoder.samplesPerPixel,
                             mode: mode, outputDPI: options.dpi, rawURL: rawURL,
                             previewURL: previewURL)
+    }
+
+    /// A short lamp-off pass for the per-column black level, then the white sheet.
+    /// `options` is the white pass: full height, no shading, scratch output path.
+    public func calibrate(options: ScanOptions) throws -> Shading {
+        let (mode, _) = try ScanMode.choose(outputDPI: options.dpi)
+
+        var darkPass = options
+        darkPass.lampOff = true
+        darkPass.heightMM = 20
+        darkPass.cropYMM = 0
+        report(.preparing, 0, "dark reference, lamp off")
+        let darkImage = try scan(options: darkPass)
+        defer { try? FileManager.default.removeItem(at: darkImage.rawURL) }
+        let dark = try Shading.measureDark(rawURL: darkImage.rawURL, mode: mode)
+        try throwIfCancelled()
+
+        var whitePass = options
+        whitePass.lampOff = false
+        report(.preparing, 0, "white reference")
+        let whiteImage = try scan(options: whitePass)
+        defer { try? FileManager.default.removeItem(at: whiteImage.rawURL) }
+        return try Shading.measure(rawURL: whiteImage.rawURL, mode: mode, dark: dark)
     }
 
     /// USB bulk is synchronous; poll in 1 s slices so Cancel is not stuck behind a 30 s timeout.

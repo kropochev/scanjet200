@@ -46,8 +46,12 @@ func commandScan(request: ScanRequest) throws {
 
     if request.useShading {
         let url = request.shadingPath.map { URL(fileURLWithPath: $0) } ?? Shading.defaultURL(for: mode)
-        if Shading.load(from: url) != nil {
+        if let shading = Shading.load(from: url) {
             print("  calibration: \(url.path)")
+            if shading.dark == nil {
+                print("  calibration has no black level — midtones may show vertical bands, "
+                      + "rerun `scanjet calibrate --dpi \(request.dpi)`")
+            }
         } else {
             print("  no calibration for \(mode.dpi) dpi — expect vertical bands, "
                   + "run `scanjet calibrate --dpi \(request.dpi)`")
@@ -78,15 +82,17 @@ func commandCalibrate(_ device: GenesysDevice, options: ScanOptions) throws {
     options.outputPath = "scanjet-calibrate.tiff"
 
     let engine = ScanEngine(device: device)
-    let image = try engine.scan(options: options)
-    let shading = try Shading.measure(rawURL: image.rawURL, mode: mode)
+    let shading = try engine.calibrate(options: options)
     let url = options.shadingURL(for: mode)
     try shading.save(to: url)
-    try options.finishRaw(image.rawURL)
     try? FileManager.default.removeItem(atPath: options.outputPath)
 
     let green = shading.reference[1]
     let spread = 100.0 * Double(green.max()! - green.min()!) / Double(shading.target)
     print(String(format: "  column spread was %.0f%%, white target %d", spread, shading.target))
+    if let dark = shading.dark?[1] {
+        print(String(format: "  black level %d, column spread %d", shading.darkLevel,
+                     Int(dark.max()!) - Int(dark.min()!)))
+    }
     print("  saved: \(url.path)")
 }

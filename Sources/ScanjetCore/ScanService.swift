@@ -134,17 +134,15 @@ public enum ScanService {
             options.keepRaw = false
             let (mode, _) = try ScanMode.choose(outputDPI: dpi)
 
-            var image: ScannedImage!
+            var shading: Shading!
             try DeviceSession.withOpenDevice { device in
-                image = try ScanEngine(device: device, progress: ScanLogger.handler, cancel: cancel)
-                    .scan(options: options)
+                shading = try ScanEngine(device: device, progress: ScanLogger.handler, cancel: cancel)
+                    .calibrate(options: options)
             }
 
             try cancel?.throwIfRequested()
-            let shading = try Shading.measure(rawURL: image.rawURL, mode: mode)
             let url = Shading.defaultURL(for: mode)
             try shading.save(to: url)
-            try? FileManager.default.removeItem(at: image.rawURL)
             ProcessMemory.releaseToOS()
             return url
         }

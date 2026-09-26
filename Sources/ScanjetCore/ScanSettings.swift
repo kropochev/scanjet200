@@ -426,6 +426,8 @@ public struct ScanOptions {
     public var appendOutput = false
     /// Decode straight into a 90° (true) or 270° (false) rotated TIFF.
     public var rotate90Clockwise: Bool? = nil
+    /// Capture with the CIS LEDs off (dark reference for calibration).
+    public var lampOff = false
 
     public var feedLines: UInt32 {
         feed ?? ((try? ScanMode.choose(outputDPI: dpi).mode.feedLines) ?? 543)
